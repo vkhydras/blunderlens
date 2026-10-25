@@ -48,6 +48,10 @@ export class Pool {
       engine.busy = true;
       engine.analyze(task.fen, { depth: task.depth, multipv: task.multipv }).then((r) => {
         r.lines = r.lines.map((l) => ({ ...l, pv: l.pv.slice(0, PV_KEEP) }));
+        if (r.error) {
+          task.resolve(r);
+          return this.pump();
+        }
         q.putEval.run(task.fen, this.engineName, task.depth, task.multipv, JSON.stringify(r));
         if (this.memo.size > 20000) this.memo.delete(this.memo.keys().next().value);
         this.memo.set(task.key, r);

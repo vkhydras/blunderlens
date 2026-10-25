@@ -10,9 +10,39 @@ import MoveList from './board/MoveList.jsx';
 import EngineLines from './board/EngineLines.jsx';
 import { Badge } from './Bits.jsx';
 import { imageToFen, withTurn } from '../lib/boardImage.js';
+import { positionProblem } from '../../../shared/legal.js';
 
 const START = new Chess().fen();
-const MIN_DEPTH = 14; // live results at least this deep are used for classification
+// Live results this deep give a first rating straight away; deeper results
+// keep replacing it, so the rating firms up while the engine thinks.
+const MIN_DEPTH = 10;
+const PIECE_NAMES = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen' };
+
+// Castling rights that the piece placement still allows (king and rook at home).
+function castlingFor(c) {
+  const at = (sq, type, color) => c.get(sq)?.type === type && c.get(sq)?.color === color;
+  return (
+    [at('e1', 'k', 'w') && at('h1', 'r', 'w') && 'K', at('e1', 'k', 'w') && at('a1', 'r', 'w') && 'Q', at('e8', 'k', 'b') && at('h8', 'r', 'b') && 'k', at('e8', 'k', 'b') && at('a8', 'r', 'b') && 'q']
+      .filter(Boolean)
+      .join('') || '-'
+  );
+}
+
+// Replays moves (uci) from a FEN, keeping the ones that are still legal.
+function replay(fen, list) {
+  const c = new Chess(fen);
+  const out = [];
+  for (const m of list) {
+    let mv;
+    try {
+      mv = c.move({ from: m.uci.slice(0, 2), to: m.uci.slice(2, 4), promotion: m.uci[4] });
+    } catch {
+      break;
+    }
+    out.push({ san: mv.san, uci: m.uci, from: mv.from, to: mv.to, fen: c.fen() });
+  }
+  return out;
+}
 
 // Analysis board: play moves for both sides; every move is rated as soon as
 // Stockfish has looked at the position, and the best reply is shown for
@@ -36,6 +66,9 @@ export default function LivePage() {
   const [inputError, setInputError] = useState('');
   const [reading, setReading] = useState(false);
   const [fromImage, setFromImage] = useState(null); // FEN read from a pasted screenshot
+  const [retracting, setRetracting] = useState(false); // dragging pieces back in time
+  const [uncapture, setUncapture] = useState(null); // piece type to put back on the vacated square
+  const [retracted, setRetracted] = useState(0);
   const pending = useRef(new Set());
 
   useEffect(() => {
@@ -54,15 +87,19 @@ export default function LivePage() {
     setResults((r) => (r[live.fen] && r[live.fen].depth >= live.result.depth ? r : { ...r, [live.fen]: { ...live.result, bestmove: live.result.lines[0].pv[0] } }));
   }, [live]);
 
-  // Any earlier position without an eval (e.g. moves made quickly) gets one from the pool.
+  // Any earlier position without an eval (e.g. moves made quickly, or taken
+  // back) gets one from the pool: a quick pass for an instant rating, then a
+  // deeper one that replaces it.
   useEffect(() => {
+    const keep = (f) => (r) => r && !r.error && setResults((x) => (x[f] && x[f].depth >= r.depth ? x : { ...x, [f]: r }));
     fens.slice(0, ply + 1).forEach((f) => {
       if (results[f] || pending.current.has(f) || f === fen || new Chess(f).isGameOver()) return;
       pending.current.add(f);
-      evaluate(f, 16, 3).then((r) => {
-        pending.current.delete(f);
-        if (r) setResults((x) => (x[f] ? x : { ...x, [f]: r }));
-      });
+      evaluate(f, MIN_DEPTH, 3)
+        .then(keep(f))
+        .then(() => evaluate(f, 18, 3))
+        .then(keep(f))
+        .finally(() => pending.current.delete(f));
     });
   }, [fens, ply, results, fen]);
 
@@ -113,7 +150,11 @@ export default function LivePage() {
     setInputError('');
     try {
       if (/^[rnbqkpRNBQKP1-8/]+ [wb] /.test(text)) {
-        new Chess(text);
+        const problem = positionProblem(text);
+        if (problem) {
+          setInputError(`Can't analyse this position: ${problem}. Fix it and press Load.`);
+          return false;
+        }
         setStartFen(text);
         setMoves([]);
         setPly(0);
@@ -131,7 +172,7 @@ export default function LivePage() {
       }
       return true;
     } catch (e) {
-      setInputError(keep ? 'Read the board, but the position is not legal. Fix the FEN below and press Load.' : 'Not a valid FEN or PGN.');
+      setInputError(keep ? 'Read the board, but the position is not legal. Fix the FEN in the box and press Load.' : 'Not a valid FEN or PGN.');
       return false;
     }
   };
@@ -145,7 +186,13 @@ export default function LivePage() {
       setInputError('');
       setReading(true);
       try {
-        const { fen: read, flipped } = await imageToFen(item.getAsFile());
+        let { fen: read, flipped } = await imageToFen(item.getAsFile());
+        // A screenshot doesn't say whose turn it is: if one king is in check,
+        // that side must be to move; otherwise the side at the bottom.
+        const bottom = flipped ? 'b' : 'w';
+        read = withTurn(read, bottom);
+        if (positionProblem(read)) read = withTurn(read, bottom === 'w' ? 'b' : 'w');
+        setRetracted(0);
         setFenInput(read);
         setFromImage(read);
         setOrientation(flipped ? 'black' : 'white');
@@ -160,12 +207,69 @@ export default function LivePage() {
     return () => removeEventListener('paste', onPaste);
   }, []);
   const setTurn = (turn) => {
-    const next = withTurn(fromImage, turn);
-    setFromImage(next);
-    setFenInput(next);
-    load(next, { keep: true });
+    const next = withTurn(startFen, turn).replace(/ (\S+) (\d+) (\d+)$/, ' - $2 $3');
+    const problem = positionProblem(next);
+    if (problem) return setInputError(`${problem}.`);
+    setInputError('');
+    if (fromImage) {
+      setFromImage(next);
+      setFenInput(next);
+    }
+    setStartFen(next);
+    setMoves([]);
+    setPly(0);
+  };
+
+  // Take back a move: the piece on `from` goes back to `to`, optionally with a
+  // captured piece reappearing on `from`. The taken-back move becomes the first
+  // move of the line so it gets rated like any other.
+  const retract = (uci) => {
+    const from = uci.slice(0, 2), to = uci.slice(2, 4);
+    const now = new Chess(startFen);
+    const piece = now.get(from);
+    if (!piece || piece.color === now.turn()) return false;
+    if (piece.type === 'p' && (to[1] === (piece.color === 'w' ? '1' : '8') || (uncapture && to[0] === from[0]) || (!uncapture && to[0] !== from[0]))) {
+      setInputError(uncapture ? 'A pawn captures diagonally.' : 'A pawn moves straight unless it captured; pick the captured piece first.');
+      return false;
+    }
+    const before = new Chess(startFen);
+    before.remove(from);
+    before.put(piece, to);
+    if (uncapture) before.put({ type: uncapture, color: piece.color === 'w' ? 'b' : 'w' }, from);
+    const [placement, , , , , full] = before.fen().split(' ');
+    // The move number only goes up after Black's move.
+    const preFen = `${placement} ${piece.color} ${castlingFor(before)} - 0 ${piece.color === 'b' ? Math.max(1, Number(full) - 1) : full}`;
+    const problem = positionProblem(preFen);
+    if (problem) {
+      setInputError(`That doesn't give a legal earlier position: ${problem}.`);
+      return false;
+    }
+    const [first] = replay(preFen, [{ uci: to + from }]);
+    if (!first) {
+      setInputError(`${PIECE_NAMES[piece.type] || 'King'} can't move ${to}→${from}.`);
+      return false;
+    }
+    setInputError('');
+    setStartFen(preFen);
+    setMoves([first, ...replay(first.fen, moves)]);
+    setPly(0);
+    setRetracted((n) => n + 1);
+    setUncapture(null);
+    return true;
+  };
+  const toggleRetract = () => {
+    if (retracting) {
+      setRetracting(false);
+      setPly(Math.min(moves.length, retracted));
+    } else {
+      setRetracting(true);
+      setRetracted(0);
+      setUncapture(null);
+      setPly(0);
+    }
   };
   const reset = () => {
+    setRetracting(false);
     setStartFen(START);
     setMoves([]);
     setPly(0);
@@ -223,19 +327,38 @@ export default function LivePage() {
           <textarea rows={3} placeholder="Paste a FEN, PGN or a screenshot of a board…" value={fenInput} onChange={(e) => setFenInput(e.target.value)} />
           {reading && <div className="muted small">Reading the board…</div>}
           {inputError && <div className="error small">{inputError}</div>}
-          {fromImage && (
+          {!moves.length && !retracting && (
             <div className="btn-row">
               <span className="muted small">To move:</span>
               {['w', 'b'].map((t) => (
-                <button key={t} className={`btn sm ${fromImage.split(' ')[1] === t ? '' : 'ghost'}`} onClick={() => setTurn(t)}>
+                <button key={t} className={`btn sm ${startFen.split(' ')[1] === t ? '' : 'ghost'}`} onClick={() => setTurn(t)}>
                   {t === 'w' ? 'White' : 'Black'}
                 </button>
               ))}
             </div>
           )}
+          {retracting && (
+            <div className="retract-box">
+              <div className="small">
+                Drag a {startFen.split(' ')[1] === 'w' ? 'black' : 'white'} piece back to the square it came from.
+                {retracted > 0 && ` ${retracted} move${retracted > 1 ? 's' : ''} taken back.`}
+              </div>
+              <div className="btn-row">
+                <span className="muted small">It captured:</span>
+                {[null, 'p', 'n', 'b', 'r', 'q'].map((t) => (
+                  <button key={t || 'none'} className={`btn sm ${uncapture === t ? '' : 'ghost'}`} onClick={() => setUncapture(t)}>
+                    {t ? PIECE_NAMES[t] : 'Nothing'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="btn-row">
             <button className="btn sm" disabled={!fenInput.trim()} onClick={() => load()}>
               Load
+            </button>
+            <button className={`btn sm ${retracting ? '' : 'ghost'}`} disabled={!retracting && ply > 0} onClick={toggleRetract} title="Go back from this position by moving pieces back">
+              {retracting ? 'Done' : 'Take back a move'}
             </button>
             <button className="btn sm ghost" disabled={!moves.length} onClick={openReview}>
               Full review ›
@@ -252,7 +375,8 @@ export default function LivePage() {
           lastMove={ply ? moves[ply - 1] : null}
           cls={m?.cls}
           evaluation={liveEval}
-          onMove={play}
+          onMove={retracting ? retract : play}
+          retract={retracting}
           top={bar(orientation === 'white' ? 'b' : 'w')}
           bottom={bar(orientation === 'white' ? 'w' : 'b')}
         />

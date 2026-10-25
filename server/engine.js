@@ -1,6 +1,7 @@
 // Thin UCI wrapper around a native Stockfish process.
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { positionProblem } from '../shared/legal.js';
 
 export class Engine extends EventEmitter {
   constructor(path, { threads = 2, hash = 64 } = {}) {
@@ -15,7 +16,19 @@ export class Engine extends EventEmitter {
 
   async init() {
     this.proc = spawn(this.path, [], { stdio: ['pipe', 'pipe', 'inherit'] });
-    this.proc.on('exit', (code) => this.emit('exit', code));
+    this.proc.on('exit', (code) => {
+      this.emit('exit', code);
+      if (this.quitting) return;
+      // Unexpected exit: answer whoever is waiting and start a fresh process,
+      // so one bad position can't leave this engine "busy" forever.
+      console.error(`Stockfish exited (${code}); restarting`);
+      const waiting = this.waiters;
+      this.waiters = [];
+      waiting.forEach((w) => w.resolve('bestmove (none)'));
+      this.buffer = '';
+      this.restarting = this.init().finally(() => (this.restarting = null));
+    });
+    this.proc.stdin.on('error', () => {}); // EPIPE while the process is exiting
     this.proc.stdout.setEncoding('utf8');
     this.proc.stdout.on('data', (chunk) => {
       this.buffer += chunk;
@@ -38,7 +51,7 @@ export class Engine extends EventEmitter {
   }
 
   send(cmd) {
-    this.proc.stdin.write(cmd + '\n');
+    if (this.proc.exitCode === null && !this.proc.killed) this.proc.stdin.write(cmd + '\n');
   }
 
   onLine(line) {
@@ -67,7 +80,13 @@ export class Engine extends EventEmitter {
   // Searches `fen` and resolves with lines scored from White's point of view.
   // `onInfo` receives intermediate results whenever a full depth completes.
   async analyze(fen, { depth = 16, multipv = 1, movetime, onInfo } = {}) {
+    const problem = positionProblem(fen);
+    if (problem) {
+      this.busy = false;
+      return { depth: 0, lines: [], bestmove: null, error: problem };
+    }
     this.busy = true;
+    if (this.restarting) await this.restarting;
     const whiteToMove = fen.split(' ')[1] === 'w';
     const lines = new Map();
     let lastDepth = 0;
@@ -102,6 +121,7 @@ export class Engine extends EventEmitter {
   }
 
   quit() {
+    this.quitting = true;
     try {
       this.send('quit');
     } catch {}

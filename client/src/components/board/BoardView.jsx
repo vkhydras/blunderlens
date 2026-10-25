@@ -12,7 +12,9 @@ const BOARD = {
 // Board + eval bar + classification badge on the destination square.
 // Moves work like Chess.com: drag a piece, or click it and then click a target;
 // legal targets are marked and promotions ask which piece to take.
-export default function BoardView({ fen, orientation, arrows = [], lastMove, cls, evaluation, hideEval, onMove, canDrag = true, top, bottom }) {
+// With `retract`, the side that just moved drags a piece back to any empty
+// square instead (onMove gets from+to; legality is checked by the caller).
+export default function BoardView({ fen, orientation, arrows = [], lastMove, cls, evaluation, hideEval, onMove, canDrag = true, retract = false, top, bottom }) {
   const [selected, setSelected] = useState(null);
   const [promotion, setPromotion] = useState(null); // { from, to, color }
   useEffect(() => {
@@ -21,11 +23,15 @@ export default function BoardView({ fen, orientation, arrows = [], lastMove, cls
   }, [fen]);
   const chess = useMemo(() => new Chess(fen), [fen]);
   const turn = chess.turn();
-  const targets = useMemo(() => (selected ? chess.moves({ square: selected, verbose: true }) : []), [chess, selected]);
-  const movable = (square) => !!onMove && canDrag && chess.get(square)?.color === turn;
+  const targets = useMemo(() => (selected && !retract ? chess.moves({ square: selected, verbose: true }) : []), [chess, selected, retract]);
+  const movable = (square) => !!onMove && canDrag && !!chess.get(square) && (chess.get(square).color === turn) !== retract;
 
   // Returns true if the move was played.
   const attempt = (from, to) => {
+    if (retract) {
+      setSelected(null);
+      return !chess.get(to) && onMove(from + to) !== false;
+    }
     const legal = chess.moves({ square: from, verbose: true }).filter((m) => m.to === to);
     setSelected(null);
     if (!legal.length) return false;
@@ -38,7 +44,7 @@ export default function BoardView({ fen, orientation, arrows = [], lastMove, cls
 
   const onSquareClick = ({ square }) => {
     if (!onMove || promotion) return setPromotion(null);
-    if (selected && targets.some((m) => m.to === square)) return attempt(selected, square);
+    if (selected && (retract ? !chess.get(square) : targets.some((m) => m.to === square))) return attempt(selected, square);
     setSelected(movable(square) && square !== selected ? square : null);
   };
 
