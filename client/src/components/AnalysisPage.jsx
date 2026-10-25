@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { api } from '../lib/api.js';
 import { requestReview, evaluate } from '../lib/engine.js';
-import { useLiveEngine } from '../lib/hooks.js';
+import { useLiveEngine, useLineReview } from '../lib/hooks.js';
 import { CLASSES, ERROR_CLASSES, parseGame, positionEval, buildReview, explainMove, winPct, formatEval } from '../../../shared/review.js';
 import BoardView, { PlayerBar } from './board/BoardView.jsx';
 import EvalGraph from './board/EvalGraph.jsx';
@@ -93,6 +93,9 @@ function Review({ row, initialPly }) {
   const lastMove = retrying ? (retry.ply > 1 ? game.moves[retry.ply - 2] : null) : inVar ? variation.moves.at(-1) : ply ? game.moves[ply - 1] : null;
   const m = !inVar && !retrying && ply ? rv?.moves[ply - 1] : null;
   const live = useLiveEngine(fen, { enabled: !retrying });
+  // Moves you play yourself are rated too, from the game position they branch off.
+  const varReview = useLineReview(inVar ? game.fens[variation.base] : null, variation?.moves || [], live, results[variation?.base]);
+  const vm = inVar ? varReview?.moves.at(-1) : null;
   const liveEval = live?.result.lines.length ? positionEval(fen, live.result) : null;
   const shownEval = inVar ? liveEval : evals[ply] && (!liveEval || (evals[ply].depth || 0) >= (live?.result.depth || 0)) ? evals[ply] : liveEval;
 
@@ -304,7 +307,7 @@ function Review({ row, initialPly }) {
           orientation={orientation}
           arrows={arrowList}
           lastMove={lastMove}
-          cls={m?.cls}
+          cls={inVar ? vm?.cls : m?.cls}
           evaluation={shownEval}
           hideEval={retrying}
           onMove={tryMove}
@@ -324,6 +327,11 @@ function Review({ row, initialPly }) {
           <button className="btn icon" onClick={() => goTo(N)} title="End (↓)">
             ⏭
           </button>
+          {inVar && (
+            <button className="btn sm primary" onClick={() => setVariation(null)} title="Leave your line and return to the game as it was played">
+              ↩ Back to game
+            </button>
+          )}
           <span className="nav-sep" />
           <button className="btn sm" onClick={() => jumpKey(-1)}>
             ‹ key move
@@ -344,7 +352,7 @@ function Review({ row, initialPly }) {
 
       {/* ---------- right: current move + moves ---------- */}
       <aside className="col col-right">
-        <MoveCard m={m} ply={ply} inVar={inVar} variation={variation} retry={retry} setRetry={setRetry} exitVar={() => setVariation(null)} game={game} />
+        <MoveCard m={m} vm={vm} ply={ply} inVar={inVar} variation={variation} retry={retry} setRetry={setRetry} exitVar={() => setVariation(null)} game={game} />
         <section className="panel-tight moves-panel">
           <MoveList moves={listMoves} ply={inVar || retrying ? -1 : ply} onSelect={goTo} startMove={Number(game.fens[0].split(' ')[5])} blackFirst={game.moves[0]?.color === 'b'} result={game.headers.Result} />
         </section>
@@ -353,7 +361,7 @@ function Review({ row, initialPly }) {
   );
 }
 
-function MoveCard({ m, ply, inVar, variation, retry, setRetry, exitVar, game }) {
+function MoveCard({ m, vm, ply, inVar, variation, retry, setRetry, exitVar, game }) {
   if (retry) {
     const target = game.moves[retry.ply - 1];
     const msg = {
@@ -380,18 +388,37 @@ function MoveCard({ m, ply, inVar, variation, retry, setRetry, exitVar, game }) 
       </section>
     );
   }
-  if (inVar)
+  if (inVar) {
+    const ex = vm?.cls ? explainMove(vm) : null;
     return (
-      <section className="panel-tight move-card">
-        <div className="mc-title">Your line</div>
-        <div className="mc-text">{variation.moves.map((x) => x.san).join(' ')}</div>
+      <section className="panel-tight move-card" style={vm?.cls ? { '--c': CLASSES[vm.cls].color } : undefined}>
+        {ex ? (
+          <div className="mc-head">
+            <Badge cls={vm.cls} size="lg" />
+            <div>
+              <div className="mc-title">{ex.title}</div>
+              {vm.wpAfter !== undefined && <div className="muted small">win chance {Math.round(vm.color === 'w' ? vm.wpAfter : 100 - vm.wpAfter)}% for White</div>}
+            </div>
+          </div>
+        ) : (
+          <div className="mc-title">Rating {variation.moves.at(-1).san}…</div>
+        )}
+        {ex?.lines.map((l, i) => (
+          <div key={i} className="mc-text">
+            {l}
+          </div>
+        ))}
+        <div className="mc-text muted small">
+          Your line from move {Math.floor(variation.base / 2) + Number(game.fens[0].split(' ')[5])}: {variation.moves.map((x) => x.san).join(' ')}
+        </div>
         <div className="mc-actions">
-          <button className="btn sm" onClick={exitVar}>
-            Back to game
+          <button className="btn sm primary" onClick={exitVar}>
+            ↩ Back to game
           </button>
         </div>
       </section>
     );
+  }
   if (!ply) return <section className="panel-tight move-card muted">Starting position. Use ← → or click a move. Drag pieces to explore your own lines.</section>;
   if (!m?.cls) return <section className="panel-tight move-card muted">Analyzing this move…</section>;
   const ex = explainMove(m);
