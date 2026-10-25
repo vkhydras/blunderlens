@@ -32,6 +32,12 @@ On an i9 with 32 threads this gives 8 engines × 3 threads plus an 8-thread live
 
 Production: `npm start` builds the client and serves it from :3001.
 
+## Online version (Vercel)
+
+`npm run build:web` builds a static version with `vite.web.config.js`. It is the same client, with the server-backed modules swapped for browser ones in `web/`:
+Chess.com is fetched directly from the browser, data is kept in memory only (no SQLite, nothing saved), and Stockfish 19 *lite* runs as single-threaded WASM in several Web Workers. The Live board is local-only. `vercel deploy --prod` deploys it (see `vercel.json`).
+Reviews are slower online (~1 min per game) than with native Stockfish.
+
 ## Layout
 
 | Path | What it does |
