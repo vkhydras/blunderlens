@@ -7,7 +7,7 @@ import { insights, openings, progress, mistakes } from '../server/insights.js';
 import { openingName } from './chesscom.js';
 import { players, archives, games, analyses, gamesOf } from './store.js';
 import { analyze, stored } from './engine.js';
-import { track } from './analytics.js';
+import { track, logLookup } from './analytics.js';
 
 export { DRAWS, resultFor, formatTimeControl, flagEmoji, ago } from '../client/src/lib/api.js';
 
@@ -36,7 +36,10 @@ async function getPlayer(username, { force = false } = {}) {
   const [profile, stats, { archives: list }] = await Promise.all([get(playerUrl(u)), get(`${playerUrl(u)}/stats`), get(`${playerUrl(u)}/games/archives`)]);
   const p = { profile, stats, archives: list, fetchedAt: Date.now() };
   players.set(u, p);
-  if (!have) track('Player loaded', { username: profile.username || u });
+  if (!have) {
+    track('Player loaded', { username: profile.username || u });
+    logLookup('player', profile.username || u);
+  }
   return p;
 }
 
@@ -197,7 +200,10 @@ function startBatch(username, { count = 50, depth = 12, timeClass } = {}) {
     .slice(0, Math.min(2000, Number(count)));
   const job = { running: true, cancelled: false, done: 0, total: todo.length, errors: 0 };
   batches.set(u, job);
-  if (todo.length) track('Batch analysis', { username: u, games: todo.length });
+  if (todo.length) {
+    track('Batch analysis', { username: u, games: todo.length });
+    logLookup('batch', u);
+  }
   (async () => {
     for (const g of todo) {
       if (job.cancelled) break;

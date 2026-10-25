@@ -5,3 +5,4 @@ data/
 web/public/stockfish/
 dist-web
 .vercel
+.env*

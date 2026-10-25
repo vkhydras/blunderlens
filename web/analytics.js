@@ -18,3 +18,10 @@ report();
 addEventListener('hashchange', report);
 
 export { track };
+
+// Also keep our own username log (api/log.js), readable later at
+// /api/usernames?key=<STATS_KEY>. Only on the deployed site, not local previews.
+export function logLookup(event, username) {
+  if (/^(localhost|127\.)/.test(location.hostname)) return;
+  fetch('/api/log', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event, username }) }).catch(() => {});
+}
