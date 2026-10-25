@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-web
+engine
+data
+web/public/stockfish

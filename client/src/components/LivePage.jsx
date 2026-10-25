@@ -93,11 +93,6 @@ export default function LivePage() {
     if (autoFlip) setOrientation((o) => (o === 'white' ? 'black' : 'white'));
     return true;
   };
-  const onDrop = ({ piece, sourceSquare, targetSquare }) => {
-    if (!targetSquare) return false;
-    const promo = piece.pieceType[1] === 'P' && /[18]$/.test(targetSquare) ? 'q' : '';
-    return play(sourceSquare + targetSquare + promo);
-  };
 
   useEffect(() => {
     const onKey = (e) => {
@@ -220,7 +215,7 @@ export default function LivePage() {
           lastMove={ply ? moves[ply - 1] : null}
           cls={m?.cls}
           evaluation={liveEval}
-          onDrop={onDrop}
+          onMove={play}
           top={bar(orientation === 'white' ? 'b' : 'w')}
           bottom={bar(orientation === 'white' ? 'w' : 'b')}
         />

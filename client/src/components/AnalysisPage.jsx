@@ -154,11 +154,6 @@ function Review({ row, initialPly }) {
     setVariation((v) => (v?.moves.length ? { ...v, moves: [...v.moves, entry] } : { base: ply, moves: [entry] }));
     return true;
   };
-  const onDrop = ({ piece, sourceSquare, targetSquare }) => {
-    if (!targetSquare) return false;
-    const promo = piece.pieceType[1] === 'P' && /[18]$/.test(targetSquare) ? 'q' : '';
-    return tryMove(sourceSquare + targetSquare + promo);
-  };
 
   async function checkRetry(uci, san, fenAfter) {
     const target = rv.moves[retry.ply - 1];
@@ -311,7 +306,7 @@ function Review({ row, initialPly }) {
           cls={m?.cls}
           evaluation={shownEval}
           hideEval={retrying}
-          onDrop={onDrop}
+          onMove={tryMove}
           top={bar(topC)}
           bottom={bar(botC)}
         />

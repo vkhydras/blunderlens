@@ -1,0 +1,2 @@
+/* The Live board is local-only. */
+.topnav a[href='#/live'] { display: none; }

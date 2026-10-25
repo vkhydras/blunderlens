@@ -2,3 +2,5 @@ node_modules
 dist
 engine/
 data/
+web/public/stockfish/
+dist-web
