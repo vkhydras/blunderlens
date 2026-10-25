@@ -4,6 +4,7 @@
 // the WebSocket client, so the review page works unchanged.
 import { parseGame, buildReview, REVIEW_VERSION, ERROR_CLASSES } from '../shared/review.js';
 import { games, analyses } from './store.js';
+import { track } from './analytics.js';
 
 const ENGINE_URL = '/stockfish/stockfish-19-lite-single.js';
 const PV_KEEP = 12;
@@ -211,6 +212,8 @@ export function requestReview(uuid, { depth, force = false }, { onProgress, onDo
     return () => {};
   }
   const job = { cancelled: false };
+  const g = games.get(uuid);
+  if (g) track('Game review', { white: g.white, black: g.black, source: g.source });
   analyze(uuid, { depth, multipv: 3, priority: 0, job, onProgress })
     .then((out) => out && !job.cancelled && onDone({ ...out, depth }))
     .catch((e) => onError(e));
