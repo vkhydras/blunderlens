@@ -9,6 +9,7 @@ import EvalGraph from './board/EvalGraph.jsx';
 import MoveList from './board/MoveList.jsx';
 import EngineLines from './board/EngineLines.jsx';
 import { Badge } from './Bits.jsx';
+import { imageToFen, withTurn } from '../lib/boardImage.js';
 
 const START = new Chess().fen();
 const MIN_DEPTH = 14; // live results at least this deep are used for classification
@@ -33,6 +34,8 @@ export default function LivePage() {
   const [showBest, setShowBest] = useState(true);
   const [fenInput, setFenInput] = useState('');
   const [inputError, setInputError] = useState('');
+  const [reading, setReading] = useState(false);
+  const [fromImage, setFromImage] = useState(null); // FEN read from a pasted screenshot
   const pending = useRef(new Set());
 
   useEffect(() => {
@@ -106,9 +109,8 @@ export default function LivePage() {
     return () => removeEventListener('keydown', onKey);
   }, [moves.length]);
 
-  const load = () => {
+  const load = (text = fenInput.trim(), { keep = false } = {}) => {
     setInputError('');
-    const text = fenInput.trim();
     try {
       if (/^[rnbqkpRNBQKP1-8/]+ [wb] /.test(text)) {
         new Chess(text);
@@ -123,10 +125,45 @@ export default function LivePage() {
         setMoves(hist.map((h) => ({ san: h.san, uci: h.from + h.to + (h.promotion || ''), from: h.from, to: h.to, fen: h.after })));
         setPly(hist.length);
       }
-      setFenInput('');
+      if (!keep) {
+        setFenInput('');
+        setFromImage(null);
+      }
+      return true;
     } catch (e) {
-      setInputError('Not a valid FEN or PGN.');
+      setInputError(keep ? 'Read the board, but the position is not legal. Fix the FEN below and press Load.' : 'Not a valid FEN or PGN.');
+      return false;
     }
+  };
+
+  // Paste a screenshot (Ctrl+V anywhere on this page): read the board from it.
+  useEffect(() => {
+    const onPaste = async (e) => {
+      const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      if (!item) return;
+      e.preventDefault();
+      setInputError('');
+      setReading(true);
+      try {
+        const { fen: read, flipped } = await imageToFen(item.getAsFile());
+        setFenInput(read);
+        setFromImage(read);
+        setOrientation(flipped ? 'black' : 'white');
+        load(read, { keep: true });
+      } catch (err) {
+        setInputError(err.message);
+      } finally {
+        setReading(false);
+      }
+    };
+    addEventListener('paste', onPaste);
+    return () => removeEventListener('paste', onPaste);
+  }, []);
+  const setTurn = (turn) => {
+    const next = withTurn(fromImage, turn);
+    setFromImage(next);
+    setFenInput(next);
+    load(next, { keep: true });
   };
   const reset = () => {
     setStartFen(START);
@@ -183,10 +220,21 @@ export default function LivePage() {
         </section>
         <section className="panel-tight">
           <h4>Start from position</h4>
-          <textarea rows={3} placeholder="Paste a FEN or PGN…" value={fenInput} onChange={(e) => setFenInput(e.target.value)} />
+          <textarea rows={3} placeholder="Paste a FEN, PGN or a screenshot of a board…" value={fenInput} onChange={(e) => setFenInput(e.target.value)} />
+          {reading && <div className="muted small">Reading the board…</div>}
           {inputError && <div className="error small">{inputError}</div>}
+          {fromImage && (
+            <div className="btn-row">
+              <span className="muted small">To move:</span>
+              {['w', 'b'].map((t) => (
+                <button key={t} className={`btn sm ${fromImage.split(' ')[1] === t ? '' : 'ghost'}`} onClick={() => setTurn(t)}>
+                  {t === 'w' ? 'White' : 'Black'}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="btn-row">
-            <button className="btn sm" disabled={!fenInput.trim()} onClick={load}>
+            <button className="btn sm" disabled={!fenInput.trim()} onClick={() => load()}>
               Load
             </button>
             <button className="btn sm ghost" disabled={!moves.length} onClick={openReview}>
