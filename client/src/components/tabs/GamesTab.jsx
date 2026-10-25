@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, resultFor, formatTimeControl } from '../../lib/api.js';
-import { TimeClassSelect, Empty } from '../Bits.jsx';
+import { TimeClassSelect, Empty, NewestGameButton } from '../Bits.jsx';
 
 const PAGE = 50;
 
@@ -54,6 +54,7 @@ export default function GamesTab({ username, version }) {
           <option value="0">Not analyzed</option>
         </select>
         <input placeholder="Opponent or opening…" value={f.q} onChange={set('q')} />
+        <NewestGameButton username={username} />
       </div>
       {data && (
         <div className="games-summary small">

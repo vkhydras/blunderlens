@@ -8,7 +8,7 @@ import BoardView, { PlayerBar } from './board/BoardView.jsx';
 import EvalGraph from './board/EvalGraph.jsx';
 import MoveList, { fmtClock } from './board/MoveList.jsx';
 import EngineLines from './board/EngineLines.jsx';
-import { Badge, moveLabel } from './Bits.jsx';
+import { Badge, moveLabel, NewestGameButton } from './Bits.jsx';
 
 const DEPTHS = [12, 16, 20, 24];
 const SUMMARY = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder'];
@@ -199,6 +199,7 @@ function Review({ row, initialPly }) {
     <div className="review-layout">
       {/* ---------- left: summary ---------- */}
       <aside className="col col-left">
+        <NewestGameButton username={me} current={meta.uuid} className="btn sm primary newest-btn" />
         <section className="panel-tight">
           <div className="acc-pair">
             {['w', 'b'].map((c) => (

@@ -23,6 +23,7 @@ export const api = {
   player: (u, refresh) => call('GET', `${P(u)}${refresh ? '?refresh=1' : ''}`),
   sync: (u, scope) => call('POST', `${P(u)}/sync${qs({ scope })}`),
   syncStatus: (u) => call('GET', `${P(u)}/sync`),
+  latest: (u) => call('POST', `${P(u)}/latest`),
   games: (u, f) => call('GET', `${P(u)}/games${qs(f)}`),
   ratings: (u, tc) => call('GET', `${P(u)}/ratings${qs({ time_class: tc })}`),
   batch: (u, opts) => call('POST', `${P(u)}/batch`, opts),

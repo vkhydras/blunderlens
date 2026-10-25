@@ -374,3 +374,29 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
   .mistake { grid-template-columns: 30px 1fr; }
   .mk-note, .mk-tags, .mk-opp { grid-column: 2; justify-content: flex-start; text-align: left; }
 }
+
+/* ---------- live board: move card + controls always beside the board ---------- */
+.live-controls { margin-top: 0; }
+.live-controls .btn { flex: 1; }
+@media (max-width: 1180px) {
+  .review-layout.live-layout {
+    --board: min(calc(100vh - var(--topbar) - 200px), calc(100vw - 330px), 760px);
+    grid-template-columns: auto minmax(0, 300px); height: auto;
+  }
+  .live-layout .col-center { width: calc(var(--board) + 34px); order: 0; }
+  .live-layout .col-right { order: 0; }
+  .live-layout .col-left { order: 1; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
+  .live-layout .moves-panel { max-height: calc(var(--board) - 140px); min-height: 120px; }
+}
+@media (max-width: 700px) {
+  .review-layout.live-layout { --board: calc(100vw - 196px); grid-template-columns: auto 150px; gap: 8px; }
+  .live-layout .col-right { font-size: 12px; }
+  .live-layout .live-controls { flex-direction: column; gap: 4px; }
+  .live-layout .move-card { min-height: 0; padding: 8px; }
+  .live-layout .move-card .mc-advice, .live-layout .move-card .mc-text:not(:first-of-type) { display: none; }
+  .live-layout .next-best { font-size: 13px; }
+  .live-layout .badge-lg { width: 28px; height: 28px; font-size: 13px; }
+}
+
+.newest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.col-left > .newest .newest-btn { flex: 1; }

@@ -113,6 +113,26 @@ export function startSync(username, scope = 'recent') {
   return job.promise;
 }
 
+// Refreshes only the archive list and the newest month, so a game that just
+// finished shows up without re-syncing anything else. Returns the newest game.
+export async function fetchLatest(username) {
+  const u = username.toLowerCase();
+  await getPlayer(u);
+  const { archives } = await get(`${player(u)}/games/archives`);
+  const row = q.getPlayer.get(u);
+  q.putPlayer.run(u, row.profile, row.stats, JSON.stringify(archives), row.fetched_at);
+  const url = archives.at(-1);
+  if (!url) return { uuid: null, added: 0 };
+  const { games } = await get(url);
+  const added = games.filter((g) => g.uuid && !q.getGame.get(g.uuid)).length;
+  tx(() => {
+    for (const g of games) putGame(g);
+    q.putArchive.run(u, url, Date.now(), isCurrentMonth(url) ? 0 : 1, games.length);
+  });
+  const newest = games.filter((g) => g.uuid && g.rules === 'chess' && g.pgn).sort((a, b) => b.end_time - a.end_time)[0];
+  return { uuid: newest?.uuid || null, added };
+}
+
 function putGame(g) {
   if (!g.uuid) return;
   q.putGame.run(

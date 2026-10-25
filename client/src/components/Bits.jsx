@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { api } from '../lib/api.js';
 import { CLASSES, THEMES } from '../../../shared/review.js';
 
 export function Badge({ cls, size = 'md' }) {
@@ -23,6 +25,32 @@ const ICONS = {
   book: svg('M3 4.5C5.8 3.6 8.8 3.8 11 5.4V20c-2.2-1.5-5.2-1.7-8-.8zM21 4.5c-2.8-.9-5.8-.7-8 .9V20c2.2-1.5 5.2-1.7 8-.8z'),
   miss: svg('M6 6l12 12M18 6L6 18', false),
 };
+
+// Fetches just the newest month from Chess.com and opens the latest game.
+export function NewestGameButton({ username, current, className = 'btn sm' }) {
+  const [state, setState] = useState('');
+  if (!username) return null;
+  const go = async () => {
+    setState('loading');
+    try {
+      const { uuid } = await api.latest(username);
+      if (!uuid) return setState('No games this month');
+      if (uuid === current) return setState('This is your newest game');
+      setState('');
+      location.hash = `#/game/${uuid}`;
+    } catch (e) {
+      setState(e.message);
+    }
+  };
+  return (
+    <span className="newest">
+      <button className={className} onClick={go} disabled={state === 'loading'}>
+        {state === 'loading' ? 'Checking Chess.com…' : 'Load newest game ↻'}
+      </button>
+      {state && state !== 'loading' && <span className="muted small">{state}</span>}
+    </span>
+  );
+}
 
 export function TimeClassSelect({ value, onChange }) {
   return (

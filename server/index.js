@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import { Engine } from './engine.js';
 import { Pool } from './pool.js';
 import { db, q } from './db.js';
-import { getPlayer, startSync, syncStatus, openingName } from './chesscom.js';
+import { getPlayer, startSync, syncStatus, fetchLatest, openingName } from './chesscom.js';
 import { createAnalyzer, importPgn } from './analyzer.js';
 import { insights, openings, progress, mistakes } from './insights.js';
 
@@ -125,6 +125,7 @@ const routes = [
     return syncStatus(u);
   }],
   ['GET', /^\/api\/player\/([^/]+)\/sync$/, ([u]) => syncStatus(u)],
+  ['POST', /^\/api\/player\/([^/]+)\/latest$/, ([u]) => fetchLatest(u)],
   ['GET', /^\/api\/player\/([^/]+)\/games$/, ([u], query) => listGames(u.toLowerCase(), query)],
   ['GET', /^\/api\/player\/([^/]+)\/ratings$/, ([u], query) => ratings(u.toLowerCase(), query.time_class || 'rapid')],
   ['POST', /^\/api\/player\/([^/]+)\/batch$/, ([u], query, body) => (startBatch(u, body), batchStatus(u))],

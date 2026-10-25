@@ -121,6 +121,23 @@ function startSync(username, scope = 'recent') {
   return job.promise;
 }
 
+// Only the archive list and the newest month: a just-finished game, nothing else.
+async function fetchLatest(username) {
+  const u = lower(username);
+  const p = await getPlayer(u);
+  const { archives: list } = await get(`${playerUrl(u)}/games/archives`);
+  p.archives = list;
+  const url = list.at(-1);
+  if (!url) return { uuid: null, added: 0 };
+  const { games: month } = await get(url);
+  const added = month.filter((g) => g.uuid && !games.has(g.uuid)).length;
+  month.forEach(putGame);
+  if (!archives.has(u)) archives.set(u, new Map());
+  archives.get(u).set(url, { fetched_at: Date.now(), complete: !isCurrentMonth(url), games: month.length });
+  const newest = month.filter((g) => g.uuid && g.rules === 'chess' && g.pgn).sort((a, b) => b.end_time - a.end_time)[0];
+  return { uuid: newest?.uuid || null, added };
+}
+
 // ---------- games ----------
 
 function listGames(u, f) {
@@ -237,6 +254,7 @@ export const api = {
     return syncStatus(u);
   },
   syncStatus: (u) => later(() => syncStatus(u)),
+  latest: (u) => fetchLatest(u),
   games: (u, f = {}) => later(() => listGames(lower(u), f)),
   ratings: (u, tc) => later(() => ratings(lower(u), tc || 'rapid')),
   batch: (u, opts) => later(() => (startBatch(u, opts), batchStatus(u))),

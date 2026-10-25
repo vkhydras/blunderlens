@@ -151,7 +151,7 @@ export default function LivePage() {
   const bestSan = top ? uciToSan(fen, top) : null;
 
   return (
-    <div className="review-layout">
+    <div className="review-layout live-layout">
       <aside className="col col-left">
         <section className="panel-tight">
           <h4>Live board</h4>
@@ -163,17 +163,6 @@ export default function LivePage() {
             <label className="check small">
               <input type="checkbox" checked={autoFlip} onChange={(e) => setAutoFlip(e.target.checked)} /> Flip board after each move
             </label>
-          </div>
-          <div className="btn-row">
-            <button className="btn sm" onClick={() => ply && (setMoves(moves.slice(0, ply - 1)), setPly(ply - 1))}>
-              Undo
-            </button>
-            <button className="btn sm" onClick={() => setOrientation((o) => (o === 'white' ? 'black' : 'white'))}>
-              Flip
-            </button>
-            <button className="btn sm ghost" onClick={reset}>
-              New game
-            </button>
           </div>
         </section>
         <section className="panel-tight">
@@ -237,6 +226,17 @@ export default function LivePage() {
       </section>
 
       <aside className="col col-right">
+        <div className="btn-row live-controls">
+          <button className="btn sm" onClick={() => ply && (setMoves(moves.slice(0, ply - 1)), setPly(ply - 1))}>
+            Undo
+          </button>
+          <button className="btn sm" onClick={() => setOrientation((o) => (o === 'white' ? 'black' : 'white'))}>
+            Flip
+          </button>
+          <button className="btn sm ghost" onClick={reset}>
+            New game
+          </button>
+        </div>
         <section className="panel-tight move-card" style={m?.cls ? { '--c': CLASSES[m.cls].color } : undefined}>
           {m ? (
             m.cls ? (
