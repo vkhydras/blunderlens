@@ -251,6 +251,6 @@ async function runLive(req) {
   }
 }
 
-export function evaluate(fen, depth = 16, multipv = 1) {
-  return poolEvaluate(fen, { depth, multipv, priority: 0 });
+export function evaluate(fen, depth = 16, multipv = 1, priority = 0) {
+  return poolEvaluate(fen, { depth, multipv, priority });
 }

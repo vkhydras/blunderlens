@@ -15,7 +15,7 @@ export class Pool {
   }
 
   async init() {
-    this.engines = await Promise.all(Array.from({ length: this.size }, () => new Engine(this.path, { threads: this.threads, hash: 128 }).init()));
+    this.engines = await Promise.all(Array.from({ length: this.size }, () => new Engine(this.path, { threads: this.threads, hash: 64 }).init()));
     this.engineName = this.engines[0].name || 'Stockfish';
     return this;
   }

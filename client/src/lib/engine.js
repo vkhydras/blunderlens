@@ -56,10 +56,11 @@ export function analyzeLive(fen, { depth = 22, multipv = 3 } = {}, onUpdate) {
 }
 
 // One-off evaluation of a position (used to check "retry" attempts).
-export function evaluate(fen, depth = 16, multipv = 1) {
+// priority 1 queues behind interactive work (for background refinement).
+export function evaluate(fen, depth = 16, multipv = 1, priority = 0) {
   const reqId = nextId++;
   return new Promise((resolve, reject) => {
     const off = listen(reqId, (msg) => msg.type === 'evaluateResult' && (off(), resolve(msg.result)));
-    send({ type: 'evaluate', reqId, fen, depth, multipv }).catch(reject);
+    send({ type: 'evaluate', reqId, fen, depth, multipv, priority }).catch(reject);
   });
 }

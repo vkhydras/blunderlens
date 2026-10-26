@@ -23,12 +23,14 @@ Stockfish is expected at `engine/stockfish/stockfish-linux-x86-64-universal`. Se
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `POOL_SIZE` | min(8, cpus/3) | Stockfish processes for reviews and batch analysis |
-| `POOL_THREADS` | (cpus − live) / pool | threads per pool engine |
-| `LIVE_THREADS` | min(8, cpus/4) | threads for the live engine |
+| `POOL_SIZE` | min(8, cpus/3, RAM GB/3) | Stockfish processes for reviews and batch analysis |
+| `POOL_THREADS` | min(6, (cpus − live) / pool) | threads per pool engine |
+| `LIVE_THREADS` | min(8, cpus/4) | threads for the live engine (one engine shared by all tabs) |
 | `PORT` / `DB_PATH` | 3001 / `data/chess.db` | |
 
-On an i9 with 32 threads this gives 8 engines × 3 threads plus an 8-thread live engine. Stockfish runs on the CPU only, so the GPU is not used.
+Each Stockfish 19 process uses roughly 450 MB of RAM, whatever its thread count. If the machine runs short of memory, the engines get swapped out and every search crawls, so the pool is also sized by RAM. On a 16 GB laptop with 32 threads this gives 4 engines × 6 threads plus an 8-thread live engine; several engines on separate positions review a game much faster than one engine with many threads. Stockfish runs on the CPU only, so the GPU is not used.
+
+An engine that crashes or stops responding for 60 s is restarted automatically, and positions Stockfish can't handle (e.g. the side not to move in check, or more pieces than promotions allow) are rejected before they reach it.
 
 Production: `npm start` builds the client and serves it from :3001.
 

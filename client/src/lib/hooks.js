@@ -66,7 +66,7 @@ export function useLineReview(startFen, moves, live, seed) {
       pending.current.add(f);
       evaluate(f, RATE_DEPTH, 3)
         .then((r) => !r?.error && keep(f, r))
-        .then(() => evaluate(f, 18, 3))
+        .then(() => evaluate(f, 18, 3, 1)) // deeper pass, behind quick ratings
         .then((r) => !r?.error && keep(f, r))
         .finally(() => pending.current.delete(f));
     }

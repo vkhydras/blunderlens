@@ -52,6 +52,12 @@ db.exec(`
   );
 `);
 
+// Added later: the ETag Chess.com sent for an archive month, for conditional
+// requests (an unchanged month comes back as an empty 304).
+try {
+  db.exec('ALTER TABLE archives ADD COLUMN etag TEXT');
+} catch {}
+
 export const q = {
   getPlayer: db.prepare('SELECT * FROM players WHERE username = ?'),
   putPlayer: db.prepare(`INSERT INTO players (username, profile, stats, archives, fetched_at) VALUES (?, ?, ?, ?, ?)
@@ -61,14 +67,19 @@ export const q = {
     FROM players p ORDER BY p.fetched_at DESC LIMIT 12`),
 
   getArchives: db.prepare('SELECT * FROM archives WHERE username = ?'),
-  putArchive: db.prepare(`INSERT INTO archives (username, url, fetched_at, complete, games) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(username, url) DO UPDATE SET fetched_at = excluded.fetched_at, complete = excluded.complete, games = excluded.games`),
+  getArchive: db.prepare('SELECT * FROM archives WHERE username = ? AND url = ?'),
+  putArchive: db.prepare(`INSERT INTO archives (username, url, fetched_at, complete, games, etag) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(username, url) DO UPDATE SET fetched_at = excluded.fetched_at, complete = excluded.complete, games = excluded.games, etag = excluded.etag`),
+  touchArchive: db.prepare('UPDATE archives SET fetched_at = ? WHERE username = ? AND url = ?'),
 
   putGame: db.prepare(`INSERT INTO games (uuid, url, end_time, time_class, time_control, rules, rated, white, black, white_l, black_l,
       white_rating, black_rating, white_result, black_result, eco_url, accuracies, pgn, source)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(uuid) DO UPDATE SET accuracies = excluded.accuracies, pgn = excluded.pgn`),
   getGame: db.prepare('SELECT * FROM games WHERE uuid = ?'),
+  hasGame: db.prepare('SELECT 1 FROM games WHERE uuid = ?'),
+  newestGame: db.prepare(`SELECT uuid FROM games WHERE (white_l = ? OR black_l = ?) AND rules = 'chess' AND pgn IS NOT NULL
+    ORDER BY end_time DESC LIMIT 1`),
 
   getAnalysis: db.prepare('SELECT * FROM analyses WHERE uuid = ?'),
   putAnalysis: db.prepare(`INSERT INTO analyses (uuid, depth, engine, version, acc_w, acc_b, review, results, created_at)

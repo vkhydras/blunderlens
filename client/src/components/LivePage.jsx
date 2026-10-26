@@ -97,7 +97,7 @@ export default function LivePage() {
       pending.current.add(f);
       evaluate(f, MIN_DEPTH, 3)
         .then(keep(f))
-        .then(() => evaluate(f, 18, 3))
+        .then(() => evaluate(f, 18, 3, 1)) // deeper pass, behind quick ratings
         .then(keep(f))
         .finally(() => pending.current.delete(f));
     });

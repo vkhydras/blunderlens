@@ -21,12 +21,16 @@ export class Engine extends EventEmitter {
       if (this.quitting) return;
       // Unexpected exit: answer whoever is waiting and start a fresh process,
       // so one bad position can't leave this engine "busy" forever.
-      console.error(`Stockfish exited (${code}); restarting`);
+      // Crashing again and again (e.g. killed for memory) backs off a little.
+      const now = Date.now();
+      this.crashes = (this.crashes || []).filter((t) => now - t < 60000).concat(now);
+      const delay = Math.min(10000, 500 * 2 ** (this.crashes.length - 1));
+      console.error(`Stockfish exited (${code}); restarting in ${delay} ms`);
       const waiting = this.waiters;
       this.waiters = [];
       waiting.forEach((w) => w.resolve('bestmove (none)'));
       this.buffer = '';
-      this.restarting = this.init().finally(() => (this.restarting = null));
+      this.restarting = new Promise((r) => setTimeout(r, delay)).then(() => this.init()).finally(() => (this.restarting = null));
     });
     this.proc.stdin.on('error', () => {}); // EPIPE while the process is exiting
     this.proc.stdout.setEncoding('utf8');
@@ -55,6 +59,7 @@ export class Engine extends EventEmitter {
   }
 
   onLine(line) {
+    this.lastLine = Date.now();
     this.emit('line', line);
     this.waiters = this.waiters.filter((w) => {
       if (!w.match(line)) return true;
@@ -106,7 +111,18 @@ export class Engine extends EventEmitter {
     this.send(`setoption name MultiPV value ${multipv}`);
     this.send(`position fen ${fen}`);
     this.send(movetime ? `go movetime ${movetime}` : `go depth ${depth}`);
+    // Watchdog: a searching engine prints something every few hundred ms. If it
+    // goes silent (stuck, swapped out, half-dead), kill it; the exit handler
+    // answers this search and starts a fresh process.
+    this.lastLine = Date.now();
+    const watchdog = setInterval(() => {
+      if (Date.now() - this.lastLine > 60000) {
+        console.error('Stockfish silent for 60 s; killing it');
+        this.proc.kill('SIGKILL');
+      }
+    }, 5000);
     const done = await this.waitFor((l) => l.startsWith('bestmove'));
+    clearInterval(watchdog);
     this.off('line', onLine);
     this.busy = false;
 

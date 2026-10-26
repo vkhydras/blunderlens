@@ -12,18 +12,42 @@ const UA = 'chess-analyzer-local/1.0 (personal game review tool)';
 const PROFILE_TTL = 30 * 60 * 1000;
 const CURRENT_MONTH_TTL = 5 * 60 * 1000;
 
-async function get(url, tries = 3) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+async function request(url, headers = {}, tries = 3) {
+  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', ...headers } });
   if (res.status === 404) throw Object.assign(new Error('Player not found on Chess.com'), { status: 404 });
   if (res.status === 429 && tries > 1) {
     await new Promise((r) => setTimeout(r, 1500));
-    return get(url, tries - 1);
+    return request(url, headers, tries - 1);
   }
-  if (!res.ok) throw new Error(`Chess.com API error ${res.status}`);
-  return res.json();
+  if (!res.ok && res.status !== 304) throw new Error(`Chess.com API error ${res.status}`);
+  return res;
 }
 
+const get = async (url) => (await request(url)).json();
+
 const player = (u) => `${BASE}/player/${encodeURIComponent(u.toLowerCase())}`;
+
+// Downloads one archive month, but only if it changed since it was stored:
+// with the saved ETag an unchanged month is an empty 304 instead of the whole
+// month again. Returns { games, added } or null when nothing changed.
+async function fetchMonth(u, url) {
+  const known = q.getArchive.get(u, url);
+  const res = await request(url, known?.etag ? { 'If-None-Match': known.etag } : {});
+  if (res.status === 304) {
+    q.touchArchive.run(Date.now(), u, url);
+    return null;
+  }
+  const { games } = await res.json();
+  let added = 0;
+  tx(() => {
+    for (const g of games) {
+      if (g.uuid && !q.hasGame.get(g.uuid)) added++;
+      putGame(g);
+    }
+    q.putArchive.run(u, url, Date.now(), isCurrentMonth(url) ? 0 : 1, games.length, res.headers.get('etag'));
+  });
+  return { games, added };
+}
 
 export async function getPlayer(username, { force = false } = {}) {
   const u = username.toLowerCase();
@@ -93,14 +117,10 @@ export function startSync(username, scope = 'recent') {
       for (const [i, url] of newestFirst.entries()) {
         if (scope === 'recent' && have >= 150 && i >= 1) break;
         if (stale(url)) {
-          const { games } = await get(url);
-          tx(() => {
-            for (const g of games) putGame(g);
-            q.putArchive.run(u, url, Date.now(), isCurrentMonth(url) ? 0 : 1, games.length);
-          });
-          job.added += games.length;
+          const r = await fetchMonth(u, url);
+          job.added += r?.added || 0;
           job.done++;
-          have += games.length;
+          have += r ? r.games.length : stored.get(url).games;
         } else have += stored.get(url).games;
       }
     } catch (e) {
@@ -113,24 +133,33 @@ export function startSync(username, scope = 'recent') {
   return job.promise;
 }
 
-// Refreshes only the archive list and the newest month, so a game that just
-// finished shows up without re-syncing anything else. Returns the newest game.
+// Checks only the current month (no profile or archive-list requests), and
+// only downloads it if it changed since last time. Falls back to the archive
+// list when this month has no games yet. Returns the newest stored game.
 export async function fetchLatest(username) {
   const u = username.toLowerCase();
-  await getPlayer(u);
-  const { archives } = await get(`${player(u)}/games/archives`);
+  if (!q.getPlayer.get(u)) await getPlayer(u);
+  const now = new Date();
+  const url = `${player(u)}/games/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  let r;
+  try {
+    r = await fetchMonth(u, url);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    r = { games: [], added: 0 };
+  }
   const row = q.getPlayer.get(u);
-  q.putPlayer.run(u, row.profile, row.stats, JSON.stringify(archives), row.fetched_at);
-  const url = archives.at(-1);
-  if (!url) return { uuid: null, added: 0 };
-  const { games } = await get(url);
-  const added = games.filter((g) => g.uuid && !q.getGame.get(g.uuid)).length;
-  tx(() => {
-    for (const g of games) putGame(g);
-    q.putArchive.run(u, url, Date.now(), isCurrentMonth(url) ? 0 : 1, games.length);
-  });
-  const newest = games.filter((g) => g.uuid && g.rules === 'chess' && g.pgn).sort((a, b) => b.end_time - a.end_time)[0];
-  return { uuid: newest?.uuid || null, added };
+  const archives = JSON.parse(row.archives);
+  if (r?.games.length && !archives.includes(url)) {
+    archives.push(url);
+    q.putPlayer.run(u, row.profile, row.stats, JSON.stringify(archives), row.fetched_at);
+  } else if (r && !r.games.length) {
+    // New month without games yet: the newest game is in an older month.
+    const { archives: list } = await get(`${player(u)}/games/archives`);
+    q.putPlayer.run(u, row.profile, row.stats, JSON.stringify(list), row.fetched_at);
+    if (list.length && list.at(-1) !== url) r = await fetchMonth(u, list.at(-1));
+  }
+  return { uuid: q.newestGame.get(u, u)?.uuid || null, added: r?.added || 0 };
 }
 
 function putGame(g) {

@@ -17,10 +17,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.PORT || 3001);
 const ENGINE_PATH = process.env.STOCKFISH_PATH || join(ROOT, 'engine/stockfish/stockfish-linux-x86-64-universal');
 const CPUS = os.availableParallelism?.() ?? os.cpus().length;
-const POOL_SIZE = Number(process.env.POOL_SIZE || Math.max(1, Math.min(8, Math.floor(CPUS / 3))));
+// A Stockfish 19 process holds ~450 MB (mostly the networks, whatever its
+// thread count). Too many of them on a machine short of RAM get swapped out,
+// and then every search crawls, so the pool is sized by memory as well as by
+// cores: one engine per ~3 GB of RAM, at most 6 threads each. Several engines
+// on separate positions review a game much faster than one with many threads.
+const MEM_GB = os.totalmem() / 2 ** 30;
+const POOL_SIZE = Number(process.env.POOL_SIZE || Math.max(1, Math.min(8, Math.floor(CPUS / 3), Math.floor(MEM_GB / 3))));
 const LIVE_THREADS = Number(process.env.LIVE_THREADS || Math.max(1, Math.min(8, Math.floor(CPUS / 4))));
 // Use every hardware thread: the review pool gets what live analysis doesn't.
-const POOL_THREADS = Number(process.env.POOL_THREADS || Math.max(1, Math.floor((CPUS - LIVE_THREADS) / POOL_SIZE)));
+const POOL_THREADS = Number(process.env.POOL_THREADS || Math.max(1, Math.min(6, Math.floor((CPUS - LIVE_THREADS) / POOL_SIZE))));
 
 if (!existsSync(ENGINE_PATH)) {
   console.error(`Stockfish not found at ${ENGINE_PATH}. Set STOCKFISH_PATH.`);
@@ -193,10 +199,35 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+// One live engine shared by every tab, started up front so it is warm when a
+// position arrives. The newest request wins: a running search is stopped and
+// the latest queued position is analysed next.
+const live = { engine: null, running: false, current: null, queued: null };
+const liveReady = new Engine(ENGINE_PATH, { threads: LIVE_THREADS, hash: 128 }).init().then((e) => (live.engine = e));
+
+function runLive(req) {
+  live.queued = req;
+  if (live.running) return live.current && live.engine.stop();
+  live.running = true;
+  (async () => {
+    await liveReady;
+    while (live.queued) {
+      const next = (live.current = live.queued);
+      live.queued = null;
+      const { reqId, fen, depth = 22, multipv = 3, send } = next;
+      const result = await live.engine.analyze(fen, {
+        depth,
+        multipv,
+        onInfo: (info) => !live.queued && send({ type: 'liveInfo', reqId, result: info }),
+      });
+      if (!live.queued) send({ type: 'liveDone', reqId, result });
+      live.current = null;
+    }
+  })().finally(() => (live.running = false));
+}
+
 wss.on('connection', (ws) => {
   const reviews = new Map();
-  let live = null;
-  let liveQueued = null;
   const sendMsg = (msg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
 
   async function review({ reqId, uuid, depth = 16, force = false }) {
@@ -213,32 +244,6 @@ wss.on('connection', (ws) => {
     reviews.delete(reqId);
   }
 
-  async function runLive(req) {
-    if (!live) live = { ready: new Engine(ENGINE_PATH, { threads: LIVE_THREADS, hash: 128 }).init() };
-    if (!live.engine) {
-      liveQueued = req;
-      live.engine = await live.ready;
-      if (liveQueued !== req) return;
-    }
-    if (live.engine.busy) {
-      liveQueued = req;
-      live.engine.stop();
-      return;
-    }
-    let next = req;
-    while (next) {
-      liveQueued = null;
-      const { reqId, fen, depth = 22, multipv = 3 } = next;
-      const result = await live.engine.analyze(fen, {
-        depth,
-        multipv,
-        onInfo: (info) => !liveQueued && sendMsg({ type: 'liveInfo', reqId, result: info }),
-      });
-      if (!liveQueued) sendMsg({ type: 'liveDone', reqId, result });
-      next = liveQueued;
-    }
-  }
-
   ws.on('message', async (raw) => {
     let msg;
     try {
@@ -248,17 +253,18 @@ wss.on('connection', (ws) => {
     }
     if (msg.type === 'review') review(msg);
     else if (msg.type === 'cancelReview') reviews.get(msg.reqId) && (reviews.get(msg.reqId).cancelled = true);
-    else if (msg.type === 'live') runLive(msg);
-    else if (msg.type === 'liveStop') live?.engine?.busy && live.engine.stop();
+    else if (msg.type === 'live') runLive({ ...msg, ws, send: sendMsg });
+    else if (msg.type === 'liveStop') live.current?.ws === ws && live.engine.stop();
     else if (msg.type === 'evaluate') {
-      const result = await pool.evaluate(msg.fen, { depth: msg.depth || 16, multipv: msg.multipv || 1, priority: 0 });
+      const result = await pool.evaluate(msg.fen, { depth: msg.depth || 16, multipv: msg.multipv || 1, priority: msg.priority === 1 ? 1 : 0 });
       sendMsg({ type: 'evaluateResult', reqId: msg.reqId, result });
     }
   });
 
   ws.on('close', () => {
     for (const job of reviews.values()) job.cancelled = true;
-    live?.ready.then((e) => e.quit());
+    if (live.queued?.ws === ws) live.queued = null;
+    if (live.current?.ws === ws) live.engine.stop();
   });
 });
 
@@ -267,7 +273,10 @@ server.listen(PORT, () => {
   console.log(`${pool.engineName}: pool ${POOL_SIZE} × ${POOL_THREADS} threads, live ${LIVE_THREADS} threads`);
 });
 
-process.on('SIGINT', () => {
-  pool.quit();
-  process.exit(0);
-});
+// Ctrl+C, or `node --watch` restarting: don't leave Stockfish processes behind.
+for (const sig of ['SIGINT', 'SIGTERM'])
+  process.on(sig, () => {
+    pool.quit();
+    live.engine?.quit();
+    process.exit(0);
+  });

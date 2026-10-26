@@ -8,6 +8,9 @@
 //     few Lichess sets), and split white/black by brightness.
 // Site-specific piece art isn't needed because only shapes are compared.
 import { Chess } from 'chess.js';
+import { materialProblem } from '../../../shared/legal.js';
+
+const START_COUNT = { q: 1, r: 2, b: 2, n: 2, p: 8 };
 
 const N = 48; // square crop size
 const M = 20; // silhouette grid
@@ -351,6 +354,16 @@ export async function imageToFen(blob) {
     const king = mine.reduce((a, b) => (a.cost.k - (a.t === 'k' ? 1 : 0) <= b.cost.k - (b.t === 'k' ? 1 : 0) ? a : b));
     for (const p of mine) if (p !== king && p.t === 'k') p.t = second(p, ['k', ...(p.r === 0 || p.r === 7 ? ['p'] : [])]);
     king.t = 'k';
+    // Impossible material (e.g. a bishop read as a second queen next to eight
+    // pawns): re-read the least certain surplus piece as its next best match.
+    for (let guard = 0; guard < 16 && materialProblem(mine.map((p) => p.t)); guard++) {
+      const counts = (t) => mine.filter((p) => p.t === t).length;
+      const surplus = mine.filter((p) => p.t !== 'k' && counts(p.t) > START_COUNT[p.t]);
+      if (!surplus.length) break;
+      const alt = (p) => second(p, ['k', p.t, ...(p.r === 0 || p.r === 7 ? ['p'] : [])]);
+      const p = surplus.reduce((a, b) => (a.cost[alt(a)] - a.cost[a.t] <= b.cost[alt(b)] - b.cost[b.t] ? a : b));
+      p.t = alt(p);
+    }
   }
 
   const grid = Array.from({ length: 8 }, () => Array(8).fill(null));
