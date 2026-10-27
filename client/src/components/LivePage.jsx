@@ -9,10 +9,9 @@ import EvalGraph from './board/EvalGraph.jsx';
 import MoveList from './board/MoveList.jsx';
 import EngineLines from './board/EngineLines.jsx';
 import { Badge } from './Bits.jsx';
-import { imageToFen, withTurn } from '../lib/boardImage.js';
+import { START, BAD_INPUT, parsePosition, changeTurn, pastedImage, readScreenshot } from '../lib/position.js';
 import { positionProblem } from '../../../shared/legal.js';
 
-const START = new Chess().fen();
 // Live results this deep give a first rating straight away; deeper results
 // keep replacing it, so the rating firms up while the engine thinks.
 const MIN_DEPTH = 10;
@@ -59,7 +58,7 @@ export default function LivePage() {
   const [moves, setMoves] = useState(saved.moves || []);
   const [ply, setPly] = useState(saved.moves?.length || 0);
   const [results, setResults] = useState({});
-  const [orientation, setOrientation] = useState('white');
+  const [orientation, setOrientation] = useState(saved.orientation || 'white');
   const [autoFlip, setAutoFlip] = useState(false);
   const [showBest, setShowBest] = useState(true);
   const [fenInput, setFenInput] = useState('');
@@ -73,9 +72,9 @@ export default function LivePage() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('liveBoard', JSON.stringify({ startFen, moves }));
+      localStorage.setItem('liveBoard', JSON.stringify({ startFen, moves, orientation }));
     } catch {}
-  }, [startFen, moves]);
+  }, [startFen, moves, orientation]);
 
   const fens = useMemo(() => [startFen, ...moves.map((m) => m.fen)], [startFen, moves]);
   const fen = fens[ply];
@@ -149,30 +148,17 @@ export default function LivePage() {
   const load = (text = fenInput.trim(), { keep = false } = {}) => {
     setInputError('');
     try {
-      if (/^[rnbqkpRNBQKP1-8/]+ [wb] /.test(text)) {
-        const problem = positionProblem(text);
-        if (problem) {
-          setInputError(`Can't analyse this position: ${problem}. Fix it and press Load.`);
-          return false;
-        }
-        setStartFen(text);
-        setMoves([]);
-        setPly(0);
-      } else {
-        const c = new Chess();
-        c.loadPgn(text);
-        const hist = c.history({ verbose: true });
-        setStartFen(hist[0]?.before || c.fen());
-        setMoves(hist.map((h) => ({ san: h.san, uci: h.from + h.to + (h.promotion || ''), from: h.from, to: h.to, fen: h.after })));
-        setPly(hist.length);
-      }
+      const pos = parsePosition(text);
+      setStartFen(pos.startFen);
+      setMoves(pos.moves);
+      setPly(pos.moves.length);
       if (!keep) {
         setFenInput('');
         setFromImage(null);
       }
       return true;
     } catch (e) {
-      setInputError(keep ? 'Read the board, but the position is not legal. Fix the FEN in the box and press Load.' : 'Not a valid FEN or PGN.');
+      setInputError(keep && e.message === BAD_INPUT ? 'Read the board, but the position is not legal. Fix the FEN in the box and press Load.' : e.message);
       return false;
     }
   };
@@ -180,18 +166,13 @@ export default function LivePage() {
   // Paste a screenshot (Ctrl+V anywhere on this page): read the board from it.
   useEffect(() => {
     const onPaste = async (e) => {
-      const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === 'file' && i.type.startsWith('image/'));
-      if (!item) return;
+      const file = pastedImage(e);
+      if (!file) return;
       e.preventDefault();
       setInputError('');
       setReading(true);
       try {
-        let { fen: read, flipped } = await imageToFen(item.getAsFile());
-        // A screenshot doesn't say whose turn it is: if one king is in check,
-        // that side must be to move; otherwise the side at the bottom.
-        const bottom = flipped ? 'b' : 'w';
-        read = withTurn(read, bottom);
-        if (positionProblem(read)) read = withTurn(read, bottom === 'w' ? 'b' : 'w');
+        const { fen: read, flipped } = await readScreenshot(file);
         setRetracted(0);
         setFenInput(read);
         setFromImage(read);
@@ -207,7 +188,7 @@ export default function LivePage() {
     return () => removeEventListener('paste', onPaste);
   }, []);
   const setTurn = (turn) => {
-    const next = withTurn(startFen, turn).replace(/ (\S+) (\d+) (\d+)$/, ' - $2 $3');
+    const next = changeTurn(startFen, turn);
     const problem = positionProblem(next);
     if (problem) return setInputError(`${problem}.`);
     setInputError('');

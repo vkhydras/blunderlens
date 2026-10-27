@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import Home from './components/Home.jsx';
 import PlayerPage from './components/PlayerPage.jsx';
 import AnalysisPage from './components/AnalysisPage.jsx';
-import LivePage from './components/LivePage.jsx';
+import LiveRoute from './components/LiveRoute.jsx';
+import BoardPage from './components/BoardPage.jsx';
 
-// Routes: #/  ·  #/player/<user>/<tab>?<query>  ·  #/game/<uuid>/<ply>  ·  #/live
+// Routes: #/  ·  #/player/<user>/<tab>?<query>  ·  #/game/<uuid>/<ply>  ·  #/live  ·  #/board
 export function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -50,11 +51,13 @@ export default function App() {
           )}
         </nav>
       </header>
-      <main className={page === 'game' || page === 'live' ? 'main-full' : ''}>
+      <main className={page === 'game' || page === 'live' || page === 'board' ? 'main-full' : ''}>
         {page === 'player' && a ? (
           <PlayerPage key={a.toLowerCase()} username={a} tab={b || 'games'} query={query} />
         ) : page === 'live' ? (
-          <LivePage />
+          <LiveRoute />
+        ) : page === 'board' ? (
+          <BoardPage />
         ) : page === 'game' && a ? (
           <AnalysisPage key={a} uuid={a} initialPly={b ? Number(b) : null} />
         ) : (
