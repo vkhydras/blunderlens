@@ -61,6 +61,10 @@ export default function Home() {
           Review PGN
         </button>
       </details>
+
+      <a className="source-link muted small" href="https://github.com/vkhydras/blunderlens" target="_blank" rel="noreferrer">
+        Source code on GitHub ↗
+      </a>
     </div>
   );
 }

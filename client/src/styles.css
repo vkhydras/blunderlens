@@ -134,6 +134,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .pgn-box summary { cursor: pointer; color: var(--muted); font-weight: 600; }
 .pgn-box[open] { display: flex; flex-direction: column; gap: 10px; }
 .pgn-box .btn { align-self: flex-start; }
+.source-link { align-self: flex-start; text-decoration: none; }
+.source-link:hover { color: var(--accent); }
 
 /* ---------- player ---------- */
 .player-page { display: flex; flex-direction: column; gap: 16px; }
