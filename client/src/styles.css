@@ -134,8 +134,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .pgn-box summary { cursor: pointer; color: var(--muted); font-weight: 600; }
 .pgn-box[open] { display: flex; flex-direction: column; gap: 10px; }
 .pgn-box .btn { align-self: flex-start; }
-.source-link { align-self: flex-start; text-decoration: none; }
-.source-link:hover { color: var(--accent); }
+.source-link {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.source-link:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- player ---------- */
 .player-page { display: flex; flex-direction: column; gap: 16px; }
