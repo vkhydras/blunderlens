@@ -2,7 +2,8 @@
 // talk to the local server are swapped for in-browser versions: Chess.com is
 // fetched directly (it allows CORS), data lives in memory instead of SQLite,
 // and Stockfish runs as WASM in Web Workers. The Live board (#/live) is
-// local-only; online the board only opens on a position pasted on Home (#/board).
+// local-only, and so is opening a position (FEN, PGN or screenshot) on the board
+// from Home (#/board): online the site is game review only.
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,8 @@ const SWAP = {
   [r('client/src/lib/api.js')]: r('web/api.js'),
   [r('client/src/lib/engine.js')]: r('web/engine.js'),
   [r('client/src/components/LiveRoute.jsx')]: r('web/NoLive.jsx'),
+  [r('client/src/components/BoardPage.jsx')]: r('web/NoLive.jsx'),
+  [r('client/src/components/PositionBox.jsx')]: r('web/Nothing.jsx'),
   [r('server/db.js')]: r('web/db.js'),
   [r('server/chesscom.js')]: r('web/chesscom.js'),
 };

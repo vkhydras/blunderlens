@@ -10,7 +10,7 @@ Type a Chess.com username to see your ratings and games. Every game gets a full 
 
 ## Online vs. local
 
-**Online:** [chess-bice-gamma.vercel.app](https://chess-bice-gamma.vercel.app). Nothing to install. Stockfish runs inside your browser as a smaller, single-threaded version, so a review takes about a minute per game. Nothing is saved, so your games are gone when you close the tab. The live board can't be opened directly online: paste a FEN, PGN or board screenshot on the home page to open it on that position.
+**Online:** [chess-bice-gamma.vercel.app](https://chess-bice-gamma.vercel.app). Nothing to install. Stockfish runs inside your browser as a smaller, single-threaded version, so a review takes about a minute per game. Nothing is saved, so your games are gone when you close the tab. Online is game review only: the live board and opening a position from a FEN, PGN or screenshot are in the local version.
 
 **Local:** runs the full native Stockfish 19 on all your CPU cores, so reviews are much faster and deeper. Games and reviews are saved in a local database, so they are only downloaded and analysed once. It includes the live board.
 
